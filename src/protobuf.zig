@@ -221,7 +221,8 @@ fn countReachableFields(comptime T: type, comptime seen: []const type) usize {
         const seen2 = seen ++ &[_]type{T};
 
         var total: usize = 0;
-        for (@typeInfo(@TypeOf(T._desc_table)).@"struct".fields) |f| {
+        for (@typeInfo(@TypeOf(T._desc_table)).@"struct".field_names) |f_name| {
+            const f = .{ .name = f_name };
             total += 1;
             const desc: FieldDescriptor = @field(T._desc_table, f.name);
             switch (desc.ftype) {
@@ -331,7 +332,8 @@ fn writeFixed(writer: *std.Io.Writer, value: anytype) std.Io.Writer.Error!void {
     const bitsize = @bitSizeOf(@TypeOf(value));
 
     var as_unsigned_int = switch (@TypeOf(value)) {
-        f32, f64, i32, i64 => @as(std.meta.Int(.unsigned, bitsize), @bitCast(value)),
+        f32, i32 => @as(u32, @bitCast(value)),
+        f64, i64 => @as(u64, @bitCast(value)),
         u32, u64, u8 => @as(u64, value),
         else => @compileError("Invalid type for append_fixed"),
     };
@@ -593,7 +595,8 @@ fn writeValue(
         .oneof => |union_type| {
             // iterate over union tags until one matches `active_union_tag` and then use the comptime information to append the value
             const active_union_tag = @tagName(value);
-            inline for (@typeInfo(@TypeOf(union_type._desc_table)).@"struct".fields) |union_field| {
+            inline for (@typeInfo(@TypeOf(union_type._desc_table)).@"struct".field_names) |uf_name| {
+                const union_field = .{ .name = uf_name };
                 if (std.mem.eql(u8, union_field.name, active_union_tag)) {
                     try writeValue(
                         writer,
@@ -620,7 +623,8 @@ pub fn encode(
     };
     @setEvalBranchQuota(comptime evalBranchQuotaFor(Data));
 
-    inline for (@typeInfo(Data).@"struct".fields) |field| {
+    inline for (@typeInfo(Data).@"struct".field_names, @typeInfo(Data).@"struct".field_types) |f_name, f_type| {
+        const field = .{ .name = f_name, .type = f_type };
         // Skip fields not present in _desc_table (e.g. _unknown_fields).
         if (comptime !@hasField(@TypeOf(Data._desc_table), field.name)) continue;
         if (comptime @typeInfo(field.type) == .optional) {
@@ -662,30 +666,30 @@ pub inline fn internal_init(comptime T: type, value: *T) void {
         ));
     }
     @setEvalBranchQuota(comptime evalBranchQuotaFor(T));
-    inline for (@typeInfo(T).@"struct".fields) |field| {
-        if (comptime !@hasField(@TypeOf(T._desc_table), field.name)) {
-            if (field.defaultValue()) |val| {
-                @field(value, field.name) = val;
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_types, @typeInfo(T).@"struct".field_attrs) |field_name, field_type, sf_attrs| {
+        if (comptime !@hasField(@TypeOf(T._desc_table), field_name)) {
+            if (sf_attrs.default_value_ptr) |ptr| {
+                @field(value, field_name) = @as(*const @FieldType(T, field_name), @ptrCast(@alignCast(ptr))).*;
             }
             continue;
         }
-        switch (comptime @field(T._desc_table, field.name).ftype) {
+        switch (comptime @field(T._desc_table, field_name).ftype) {
             .@"enum", .scalar => {
-                if (field.defaultValue()) |val| {
-                    @field(value, field.name) = val;
+                if (sf_attrs.default_value_ptr) |ptr| {
+                    @field(value, field_name) = @as(*const @FieldType(T, field_name), @ptrCast(@alignCast(ptr))).*;
                 } else {
-                    @field(value, field.name) =
-                        get_field_default_value(field.type);
+                    @field(value, field_name) =
+                        get_field_default_value(field_type);
                 }
             },
             .submessage => {
-                @field(value, field.name) = null;
+                @field(value, field_name) = null;
             },
             .oneof => {
-                @field(value, field.name) = null;
+                @field(value, field_name) = null;
             },
             .repeated, .packed_repeated => {
-                @field(value, field.name) = .empty;
+                @field(value, field_name) = .empty;
             },
         }
     }
@@ -717,7 +721,8 @@ pub fn dupe(comptime T: type, original: T, allocator: std.mem.Allocator) std.mem
 
     var result: T = undefined;
 
-    inline for (@typeInfo(T).@"struct".fields) |field| {
+    inline for (@typeInfo(T).@"struct".field_names) |f_name| {
+        const field = .{ .name = f_name };
         if (comptime !@hasField(@TypeOf(T._desc_table), field.name)) continue;
         @field(result, field.name) = try dupeField(original, field.name, @field(T._desc_table, field.name).ftype, allocator);
     }
@@ -748,7 +753,7 @@ fn dupeField(
                             Original,
                             @field(std.meta.FieldEnum(Original), field_name),
                         );
-                        if (comptime field_info.defaultValue()) |val| {
+                        if (comptime field_info.attrs.defaultValue([]const u8)) |val| {
                             if (val.ptr == @field(original, field_name).ptr) {
                                 return val;
                             }
@@ -890,7 +895,8 @@ fn dupeField(
             // if the value is set, inline-iterate over the possible oneofs
             if (@field(original, field_name)) |union_value| {
                 const active = @tagName(union_value);
-                inline for (@typeInfo(@TypeOf(one_of._desc_table)).@"struct".fields) |union_field| {
+                inline for (@typeInfo(@TypeOf(one_of._desc_table)).@"struct".field_names) |uf_name| {
+                    const union_field = .{ .name = uf_name };
                     // and if one matches the actual tagName of the union
                     if (std.mem.eql(u8, union_field.name, active)) {
                         // deinit the current value
@@ -911,7 +917,8 @@ pub fn deinit(allocator: std.mem.Allocator, data: anytype) void {
 
     const T = @typeInfo(@TypeOf(data)).pointer.child;
 
-    inline for (@typeInfo(T).@"struct".fields) |field| {
+    inline for (@typeInfo(T).@"struct".field_names) |f_name| {
+        const field = .{ .name = f_name };
         if (comptime !@hasField(@TypeOf(T._desc_table), field.name)) continue;
         deinitField(allocator, data, field.name);
     }
@@ -1000,7 +1007,8 @@ pub fn deinitField(
                             @field(std.meta.FieldEnum(Root), field_name),
                         );
 
-                        if (comptime field_info.defaultValue()) |default| {
+                        if (comptime field_info.attrs.default_value_ptr) |ptr| {
+                            const default: []const u8 = @as(*const []const u8, @ptrCast(@alignCast(ptr))).*;
                             if (comptime default.len > 0) {
                                 if (default.ptr == slc.ptr) return;
                             }
@@ -1055,7 +1063,8 @@ pub fn deinitField(
                                 @field(std.meta.FieldEnum(Root), field_name),
                             );
 
-                            if (comptime field_info.defaultValue()) |default| {
+                            if (comptime field_info.attrs.default_value_ptr) |ptr| {
+                                const default: ?[]const u8 = @as(*const ?[]const u8, @ptrCast(@alignCast(ptr))).*;
                                 if (comptime default != null and default.?.len > 0) {
                                     if (default.?.ptr == @field(root, field_name).?.ptr) return;
                                 }
@@ -1066,11 +1075,9 @@ pub fn deinitField(
                             allocator.free(@field(root, field_name).?);
                     } else unreachable;
                 },
-                .@"struct" => |s| {
+                .@"struct" => {
                     // If arraylist, also free items inside.
-                    if (comptime s.fields.len == 2 and
-                        @hasField(o.child, "items") and @hasField(o.child, "capacity"))
-                    {
+                    if (comptime @hasField(o.child, "items") and @hasField(o.child, "capacity")) {
                         const ListItem = @typeInfo(@FieldType(o.child, "items")).pointer.child;
                         switch (comptime @typeInfo(ListItem)) {
                             .pointer => {
@@ -1101,11 +1108,9 @@ pub fn deinitField(
             }
         },
         // Maps, `oneof` submessages, and `ArrayListUnmanaged`s
-        .@"struct" => |s| {
+        .@"struct" => {
             // If arraylist, also free items inside.
-            if (comptime s.fields.len == 2 and
-                @hasField(Field, "items") and @hasField(Field, "capacity"))
-            {
+            if (comptime @hasField(Field, "items") and @hasField(Field, "capacity")) {
                 const ListItem = @typeInfo(@FieldType(Field, "items")).pointer.child;
                 switch (comptime @typeInfo(ListItem)) {
                     .pointer => {

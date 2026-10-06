@@ -199,7 +199,7 @@ pub const ZigZag = struct {
 /// with `_`), any integer value is valid. For exhaustive enums, only declared values
 /// are accepted.
 inline fn enumFromRaw(comptime E: type, raw: i32) ?E {
-    if (comptime !@typeInfo(E).@"enum".is_exhaustive) {
+    if (comptime @typeInfo(E).@"enum".mode == .nonexhaustive) {
         return @enumFromInt(raw);
     }
     return std.enums.fromInt(E, raw);
@@ -587,10 +587,11 @@ pub fn decodeMessage(
         };
         consumed += tag_c;
 
-        inline for (@typeInfo(@TypeOf(desc_table)).@"struct".fields) |field| {
+        inline for (@typeInfo(@TypeOf(desc_table)).@"struct".field_names) |f_name| {
+            const field = .{ .name = f_name };
             const field_desc: protobuf.FieldDescriptor =
                 comptime @field(desc_table, field.name);
-            const field_info: std.builtin.Type.StructField =
+            const field_info =
                 std.meta.fieldInfo(Result, @field(ResultField, field.name));
 
             if (comptime field_desc.ftype != .oneof) {
@@ -655,7 +656,8 @@ pub fn decodeMessage(
                         if (comptime Field == []const u8) {
                             const existing: []const u8 =
                                 @field(result, field.name);
-                            if (comptime field_info.defaultValue()) |default| {
+                            if (comptime field_info.attrs.default_value_ptr) |ptr| {
+                                const default: []const u8 = @as(*const []const u8, @ptrCast(@alignCast(ptr))).*;
                                 if (default.ptr != existing.ptr and
                                     existing.len > 0)
                                 {
@@ -667,7 +669,8 @@ pub fn decodeMessage(
                         } else if (comptime Field == ?[]const u8) {
                             if (@field(result, field.name)) |existing| {
                                 if (existing.len > 0) {
-                                    if (comptime field_info.defaultValue()) |opt| {
+                                    if (comptime field_info.attrs.default_value_ptr) |ptr| {
+                                        const opt: ?[]const u8 = @as(*const ?[]const u8, @ptrCast(@alignCast(ptr))).*;
                                         if (comptime opt != null) {
                                             if (opt.?.ptr != existing.ptr) {
                                                 allocator.free(existing);
@@ -868,7 +871,8 @@ pub fn decodeMessage(
                     const oneof_ti = comptime @typeInfo(OneOf).@"union";
 
                     const inner_desc_table = comptime OneOf._desc_table;
-                    oo_fields: inline for (oneof_ti.fields) |oo_field| {
+                    oo_fields: inline for (oneof_ti.field_names, oneof_ti.field_types) |oof_name, oof_type| {
+                        const oo_field = .{ .name = oof_name, .type = oof_type };
                         const inner_desc: protobuf.FieldDescriptor =
                             comptime @field(inner_desc_table, oo_field.name);
 

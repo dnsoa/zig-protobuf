@@ -36,7 +36,8 @@ fn _compare_numerics(value1: anytype, value2: @TypeOf(value1)) bool {
 
 fn compare_pb_structs(value1: anytype, value2: @TypeOf(value1)) bool {
     const T = @TypeOf(value1);
-    inline for (std.meta.fields(T)) |structInfo| {
+    inline for (@typeInfo(T).@"struct".field_names) |f_name| {
+        const structInfo = .{ .name = f_name };
         const field_type = @TypeOf(@field(value1, structInfo.name));
 
         var field1: switch (@typeInfo(field_type)) {
@@ -113,7 +114,8 @@ fn compare_pb_structs(value1: anytype, value2: @TypeOf(value1)) bool {
                 const union2_active_tag = std.meta.activeTag(field2);
                 if (union1_active_tag != union2_active_tag) return false;
 
-                inline for (union_info.fields) |field_info| {
+                inline for (union_info.field_names) |fi_name| {
+                    const field_info = .{ .name = fi_name };
                     if (@field(
                         union_info.tag_type.?,
                         field_info.name,

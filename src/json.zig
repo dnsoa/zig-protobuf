@@ -29,7 +29,7 @@ pub fn parse(
     var result: Self = undefined;
     protobuf.internal_init(Self, &result);
     const structInfo = @typeInfo(Self).@"struct";
-    var fields_seen = [_]bool{false} ** structInfo.fields.len;
+    var fields_seen = @as([structInfo.field_names.len]bool, @splat(false));
 
     while (true) {
         var name_token: ?std.json.Token = try source.nextAllocMax(
@@ -47,7 +47,8 @@ pub fn parse(
             },
         };
 
-        inline for (structInfo.fields, 0..) |field, i| {
+        inline for (structInfo.field_names, structInfo.field_types, structInfo.field_attrs, 0..) |f_name, f_type, f_attrs, i| {
+            const field = .{ .name = f_name, .type = f_type, .is_comptime = f_attrs.@"comptime" };
             if (comptime !@hasField(@TypeOf(Self._desc_table), field.name)) continue;
             if (field.is_comptime) {
                 @compileError("comptime fields are not supported: " ++ @typeName(Self) ++ "." ++ field.name);
@@ -121,7 +122,8 @@ pub fn parse(
             // Try flat-oneof format: check if field_name matches any union
             // variant in any oneof field of this struct.
             var matched_as_flat_oneof = false;
-            inline for (structInfo.fields, 0..) |field, i| {
+            inline for (structInfo.field_names, 0..) |f_name, i| {
+                const field = .{ .name = f_name };
                 if (comptime !@hasField(@TypeOf(Self._desc_table), field.name)) continue;
                 if (!matched_as_flat_oneof) {
                     const field_descriptor = @field(Self._desc_table, field.name);
@@ -131,7 +133,8 @@ pub fn parse(
                     ) == .oneof) {
                         const oneof_type = field_descriptor.ftype.oneof;
                         const union_info = @typeInfo(oneof_type).@"union";
-                        inline for (union_info.fields) |union_field| {
+                                        inline for (union_info.field_names, union_info.field_types) |uf_name, uf_type| {
+                                            const union_field = .{ .name = uf_name, .type = uf_type };
                             if (!matched_as_flat_oneof) {
                                 const camel = comptime to_camel_case(union_field.name);
                                 const matches =
@@ -291,14 +294,14 @@ fn stringifyOpts(Self: type, self: *const Self, jws: anytype, opts: Options) std
 
     try jws.beginObject();
 
-    inline for (@typeInfo(Self).@"struct".fields) |fieldInfo| {
-        if (comptime !@hasField(@TypeOf(Self._desc_table), fieldInfo.name)) continue;
-        const camel_case_name = comptime to_camel_case(fieldInfo.name);
-        const descriptor = @field(Self._desc_table, fieldInfo.name);
+    inline for (@typeInfo(Self).@"struct".field_names, @typeInfo(Self).@"struct".field_types) |field_name, field_type| {
+        if (comptime !@hasField(@TypeOf(Self._desc_table), field_name)) continue;
+        const camel_case_name = comptime to_camel_case(field_name);
+        const descriptor = @field(Self._desc_table, field_name);
         const is_oneof = @as(std.meta.Tag(@TypeOf(descriptor.ftype)), descriptor.ftype) == .oneof;
 
-        const field_value = @field(self, fieldInfo.name);
-        const field_present = switch (@typeInfo(fieldInfo.type)) {
+        const field_value = @field(self, field_name);
+        const field_present = switch (@typeInfo(field_type)) {
             .optional => field_value != null,
             // For non-optional fields, skip if value is proto3 default.
             .bool => field_value,
@@ -307,7 +310,7 @@ fn stringifyOpts(Self: type, self: *const Self, jws: anytype, opts: Options) std
             .pointer => |ptr| if (ptr.size == .slice) field_value.len != 0 else true,
             .@"struct" => blk: {
                 // ArrayList (repeated/map/packed_repeated): skip when empty.
-                if (comptime @hasField(fieldInfo.type, "items")) {
+                if (comptime @hasField(field_type, "items")) {
                     break :blk field_value.items.len != 0;
                 }
                 break :blk true;
@@ -455,7 +458,8 @@ fn stringify_struct_field_with_options(
             if (pb_options.emit_oneof_field_name) {
                 try jws.beginObject();
             }
-            inline for (union_info.fields) |union_field| {
+            inline for (union_info.field_names, union_info.field_types) |uf_name, uf_type| {
+                const union_field = .{ .name = uf_name, .type = uf_type };
                 if (value == @field(
                     union_info.tag_type.?,
                     union_field.name,
@@ -612,9 +616,9 @@ fn parseEnumField(comptime EnumType: type, allocator: std.mem.Allocator, source:
     };
     if (std.meta.stringToEnum(EnumType, name)) |v| return v;
     // Case-insensitive fallback over enum fields (handles "moo" → MOO)
-    inline for (@typeInfo(EnumType).@"enum".fields) |field| {
-        if (std.ascii.eqlIgnoreCase(field.name, name)) {
-            return @enumFromInt(field.value);
+    inline for (@typeInfo(EnumType).@"enum".field_names, @typeInfo(EnumType).@"enum".field_values) |field, field_value| {
+        if (std.ascii.eqlIgnoreCase(field, name)) {
+            return @enumFromInt(field_value);
         }
     }
     // Check allow_alias table if present (case-insensitive)
@@ -631,7 +635,7 @@ fn parseEnumField(comptime EnumType: type, allocator: std.mem.Allocator, source:
 fn parseStructField(
     comptime T: type,
     result: *T,
-    comptime fieldInfo: std.builtin.Type.StructField,
+    comptime fieldInfo: anytype,
     allocator: std.mem.Allocator,
     source: anytype,
     options: std.json.ParseOptions,
@@ -761,7 +765,8 @@ fn parseStructField(
                 },
             };
 
-            inline for (union_info.fields) |union_field| {
+            inline for (union_info.field_names, union_info.field_types) |uf_name, uf_type| {
+                const union_field = .{ .name = uf_name, .type = uf_type };
                 // snake_case comparison
                 var this_field = std.mem.eql(u8, union_field.name, field_name);
                 if (!this_field) {
@@ -934,9 +939,9 @@ fn print_numeric(value: anytype, jws: anytype) !void {
 fn isMapEntry(comptime T: type) bool {
     switch (@typeInfo(T)) {
         .@"struct" => |s| {
-            if (s.fields.len != 2) return false;
-            return std.mem.eql(u8, s.fields[0].name, "key") and
-                std.mem.eql(u8, s.fields[1].name, "value");
+            if (s.field_names.len != 2) return false;
+            return std.mem.eql(u8, s.field_names[0], "key") and
+                std.mem.eql(u8, s.field_names[1], "value");
         },
         else => return false,
     }
@@ -1092,13 +1097,13 @@ fn parse_bytes(
 fn fillDefaultStructValues(
     comptime T: type,
     r: *T,
-    fields_seen: *[@typeInfo(T).@"struct".fields.len]bool,
+    fields_seen: *[@typeInfo(T).@"struct".field_names.len]bool,
 ) error{MissingField}!void {
     // Took from std.json source code since it was non-public one
-    inline for (@typeInfo(T).@"struct".fields, 0..) |field, i| {
+    inline for (@typeInfo(T).@"struct".field_names, @typeInfo(T).@"struct".field_attrs, 0..) |field_name, sf_attrs, i| {
         if (!fields_seen[i]) {
-            if (field.defaultValue()) |default| {
-                @field(r, field.name) = default;
+            if (sf_attrs.default_value_ptr) |ptr| {
+                @field(r, field_name) = @as(*const @FieldType(T, field_name), @ptrCast(@alignCast(ptr))).*;
             } else {
                 return error.MissingField;
             }

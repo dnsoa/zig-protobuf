@@ -143,7 +143,7 @@ pub fn build(b: *std.Build) !void {
     };
 
     const convertStep = RunProtocStep.createWithGenerator(b, exe, .{
-        .destination_directory = b.path("tests/.generated"),
+        .destination_directory = b.path("tests/generated"),
         .source_files = &.{b.path("tests/protos_for_test/generated_in_ci.proto")},
         .include_directories = &.{b.path("tests/protos_for_test")},
     });
@@ -153,7 +153,6 @@ pub fn build(b: *std.Build) !void {
         .source_files = &.{
             b.path("tests/protos_for_test/all.proto"),
             b.path("tests/protos_for_test/complex_type.proto"),
-            b.path("tests/protos_for_test/onnx.proto"),
             b.path("tests/protos_for_test/test_service.proto"),
             b.path("tests/protos_for_test/whitespace-in-name.proto"),
         },
@@ -171,8 +170,8 @@ pub fn build(b: *std.Build) !void {
         // This will evaluate the `test` step rather than the default, which is "install".
         const run_main_tests = b.addRunArtifact(test_item);
 
-        test_item.step.dependOn(&convertStep.step);
-        test_item.step.dependOn(&convertStep2.step);
+        test_item.step.dependOn(convertStep.step);
+        test_item.step.dependOn(convertStep2.step);
 
         test_step.dependOn(&run_main_tests.step);
     }
@@ -190,5 +189,5 @@ pub fn build(b: *std.Build) !void {
         .include_directories = &.{},
     });
 
-    bootstrap.dependOn(&bootstrapConversion.step);
+    bootstrap.dependOn(bootstrapConversion.step);
 }

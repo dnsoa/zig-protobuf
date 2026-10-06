@@ -39,9 +39,9 @@ pub const TestAllTypesProto3 = struct {
     optional_bytes: []const u8 = &.{},
     optional_nested_message: ?TestAllTypesProto3.NestedMessage = null,
     optional_foreign_message: ?ForeignMessage = null,
-    optional_nested_enum: TestAllTypesProto3.NestedEnum = @enumFromInt(0),
-    optional_foreign_enum: ForeignEnum = @enumFromInt(0),
-    optional_aliased_enum: TestAllTypesProto3.AliasedEnum = @enumFromInt(0),
+    optional_nested_enum: TestAllTypesProto3.NestedEnum = @fromBackingInt(@intCast(0)),
+    optional_foreign_enum: ForeignEnum = @fromBackingInt(@intCast(0)),
+    optional_aliased_enum: TestAllTypesProto3.AliasedEnum = @fromBackingInt(@intCast(0)),
     optional_string_piece: []const u8 = &.{},
     optional_cord: []const u8 = &.{},
     recursive_message: ?*TestAllTypesProto3 = null,
@@ -137,7 +137,7 @@ pub const TestAllTypesProto3 = struct {
     optional_struct: ?google_protobuf.Struct = null,
     optional_any: ?google_protobuf.Any = null,
     optional_value: ?google_protobuf.Value = null,
-    optional_null_value: google_protobuf.NullValue = @enumFromInt(0),
+    optional_null_value: google_protobuf.NullValue = @fromBackingInt(@intCast(0)),
     repeated_duration: std.ArrayList(google_protobuf.Duration) = .empty,
     repeated_timestamp: std.ArrayList(google_protobuf.Timestamp) = .empty,
     repeated_fieldmask: std.ArrayList(google_protobuf.FieldMask) = .empty,
@@ -1594,7 +1594,7 @@ pub const TestAllTypesProto3 = struct {
 
     pub const MapStringNestedEnumEntry = struct {
         key: []const u8 = &.{},
-        value: TestAllTypesProto3.NestedEnum = @enumFromInt(0),
+        value: TestAllTypesProto3.NestedEnum = @fromBackingInt(@intCast(0)),
 
         pub const _desc_table = .{
             .key = fd(1, .{ .scalar = .string }),
@@ -1662,7 +1662,7 @@ pub const TestAllTypesProto3 = struct {
 
     pub const MapStringForeignEnumEntry = struct {
         key: []const u8 = &.{},
-        value: ForeignEnum = @enumFromInt(0),
+        value: ForeignEnum = @fromBackingInt(@intCast(0)),
 
         pub const _desc_table = .{
             .key = fd(1, .{ .scalar = .string }),

@@ -82,7 +82,7 @@ pub const Message = struct {
 
 pub const OneofContainer = struct {
     regular_field: []const u8 = &.{},
-    enum_field: Enum = @enumFromInt(0),
+    enum_field: Enum = @fromBackingInt(@intCast(0)),
     some_oneof: ?some_oneof_union = null,
 
     pub const _some_oneof_case = enum {
